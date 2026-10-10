@@ -1,4 +1,4 @@
-Changes requested in the extension review; sync behavior is the same as in 1.3.0-beta.
+Code clean-up to follow the Blender Extensions guidelines; sync behavior is the same as in 1.3.0-beta.
 
 - No threads: the add-on no longer uses the `threading` or `queue` modules. The local HTTP server is polled from a Blender timer (non-blocking), and Roblox meshes/textures are downloaded in separate processes started with `subprocess`.
 - The Roblox Studio plugin is no longer packed inside the extension zip.
