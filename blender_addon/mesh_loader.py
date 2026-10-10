@@ -391,6 +391,73 @@ def extract_clean_asset_id(raw_str):
     return max(digits, key=len) if digits else clean
 
 
+def stamp_geometry(mesh):
+    """Remembers vertex count and first vertex, to notice later if the mesh was edited in Blender."""
+    co = list(mesh.vertices[0].co) if len(mesh.vertices) else []
+    mesh["rbx_geo"] = [float(len(mesh.vertices))] + co
+
+
+def geometry_intact(mesh):
+    geo = mesh.get("rbx_geo")
+    if geo is None:
+        return True
+    geo = list(geo)
+    if len(mesh.vertices) != int(geo[0]):
+        return False
+    if len(geo) < 4 or not len(mesh.vertices):
+        return True
+    co = mesh.vertices[0].co
+    return all(abs(co[i] - geo[1 + i]) < 1e-4 for i in range(3))
+
+
+def protect_shared(mesh):
+    """
+    Gives a shared mesh a hidden second user (an object outside the scene, kept by a fake user).
+    Blender then treats the mesh as multi-user, so "Apply Scale" or similar on one part makes a copy
+    for that part instead of changing the mesh of every part that shares it.
+    """
+    holder_name = "RbxHolder_" + mesh.name
+    holder = bpy.data.objects.get(holder_name)
+    if holder is None:
+        holder = bpy.data.objects.new(holder_name, mesh)
+        holder.use_fake_user = True
+    elif holder.data != mesh:
+        holder.data = mesh
+
+
+def copy_geometry(dst, src):
+    """Replaces dst's geometry (incl. UVs) with src's, keeping the dst datablock and its users."""
+    import bmesh
+    bm = bmesh.new()
+    bm.from_mesh(src)
+    bm.to_mesh(dst)
+    bm.free()
+
+
+def _fill_mesh(mesh, mesh_dict):
+    verts = mesh_dict["verts"]
+    faces = mesh_dict["faces"]
+    uvs = mesh_dict.get("uvs", [])
+    mesh.clear_geometry()
+    mesh.from_pydata(verts, [], faces)
+    mesh.update()
+    if verts:
+        min_x = min(v[0] for v in verts); max_x = max(v[0] for v in verts)
+        min_y = min(v[1] for v in verts); max_y = max(v[1] for v in verts)
+        min_z = min(v[2] for v in verts); max_z = max(v[2] for v in verts)
+        dx = max(0.001, max_x - min_x)
+        dy = max(0.001, max_z - min_z)  # Roblox Y (height) is Blender Z
+        dz = max(0.001, max_y - min_y)  # Roblox Z (depth) is Blender Y
+        mesh["rbx_native_size"] = (dx, dy, dz)
+    if uvs and len(uvs) == len(verts):
+        uv_layer = mesh.uv_layers.new(name="UVMap")
+        for loop in mesh.loops:
+            v_idx = loop.vertex_index
+            if v_idx < len(uvs):
+                uv_layer.data[loop.index].uv = uvs[v_idx]
+    stamp_geometry(mesh)
+
+
 def get_or_load_mesh(mesh_id_str, fallback_name=None):
     """
     Returns a bpy.data.meshes instance with parsed Roblox geometry,
@@ -404,11 +471,18 @@ def get_or_load_mesh(mesh_id_str, fallback_name=None):
         return None
 
     mesh_name = f"RbxMesh_{asset_id}"
+    existing = None
     if mesh_name in bpy.data.meshes:
         m = bpy.data.meshes[mesh_name]
         try:
             if len(m.vertices) > 0:
-                return m
+                if geometry_intact(m):
+                    if m.get("rbx_geo") is None:
+                        stamp_geometry(m)
+                    protect_shared(m)
+                    return m
+                # Edited in Blender (e.g. scale applied into it): reload the original geometry in place
+                existing = m
         except ReferenceError:
             pass
 
@@ -453,32 +527,10 @@ def get_or_load_mesh(mesh_id_str, fallback_name=None):
     faces = mesh_dict["faces"]
     uvs = mesh_dict.get("uvs", [])
 
-    # 5. Build Blender Mesh
-    new_mesh = bpy.data.meshes.new(mesh_name)
-    new_mesh.from_pydata(verts, [], faces)
-    new_mesh.update()
-
-    # Calculate native Roblox size of mesh for exact scale compensation
-    if verts:
-        min_x = min(v[0] for v in verts)
-        max_x = max(v[0] for v in verts)
-        min_y = min(v[1] for v in verts)
-        max_y = max(v[1] for v in verts)
-        min_z = min(v[2] for v in verts)
-        max_z = max(v[2] for v in verts)
-        dx = max(0.001, max_x - min_x)
-        dy = max(0.001, max_z - min_z)  # Roblox Y (height) is Blender Z
-        dz = max(0.001, max_y - min_y)  # Roblox Z (depth) is Blender Y
-        new_mesh["rbx_native_size"] = (dx, dy, dz)
-
-    # Assign UVs if present
-    if uvs and len(uvs) == len(verts):
-        uv_layer = new_mesh.uv_layers.new(name="UVMap")
-        for loop in new_mesh.loops:
-            v_idx = loop.vertex_index
-            if v_idx < len(uvs):
-                uv_layer.data[loop.index].uv = uvs[v_idx]
-
+    # 5. Build Blender Mesh (or restore an edited one in place, so every part using it is fixed)
+    new_mesh = existing if existing is not None else bpy.data.meshes.new(mesh_name)
+    _fill_mesh(new_mesh, mesh_dict)
     new_mesh.use_fake_user = True
+    protect_shared(new_mesh)
     _created_mesh_cache[asset_id] = new_mesh
     return new_mesh

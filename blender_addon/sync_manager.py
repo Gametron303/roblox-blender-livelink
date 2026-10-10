@@ -304,76 +304,73 @@ _SHARED_MESH_NAMES = {
 }
 
 
-def init_shared_meshes():
-    # Reuse meshes already in the .blend (after "Reload Addon" or reopening a file) instead of making ".001" copies
-    for key, mesh_name in _SHARED_MESH_NAMES.items():
-        if not is_mesh_valid(_base_meshes.get(key)):
-            existing = bpy.data.meshes.get(mesh_name)
-            if existing is not None and len(existing.vertices) > 0:
-                _base_meshes[key] = existing
-    if not is_mesh_valid(_base_meshes.get(("Block", None))):
-        m = build_cube_mesh("RbxShared_Cube")
-        m.use_fake_user = True
-        _base_meshes[("Block", None)] = m
-        for face_name in ["Front", "Top", "Back", "Bottom", "Left", "Right"]:
-            fm = build_cube_mesh(f"RbxShared_Cube_{face_name}", target_face=face_name)
-            fm.use_fake_user = True
-            _base_meshes[("Block", face_name)] = fm
-
-    if not is_mesh_valid(_base_meshes.get(("Sphere", None))):
-        mesh = bpy.data.meshes.new("RbxShared_Sphere")
-        mesh.use_fake_user = True
-        bm = bmesh.new()
+def _build_shared(canonical, mesh_name):
+    """Builds the geometry of a shared primitive mesh ("RbxShared_Cube", "RbxShared_Cube_Top"...) into a new mesh."""
+    if canonical == "RbxShared_Cube":
+        return build_cube_mesh(mesh_name)
+    if canonical.startswith("RbxShared_Cube_"):
+        return build_cube_mesh(mesh_name, target_face=canonical.rsplit("_", 1)[1])
+    mesh = bpy.data.meshes.new(mesh_name)
+    bm = bmesh.new()
+    if canonical == "RbxShared_Sphere":
         bmesh.ops.create_uvsphere(bm, u_segments=20, v_segments=14, radius=0.5)
-        bm.to_mesh(mesh)
-        bm.free()
-        mesh.materials.append(None)
-        _base_meshes[("Sphere", None)] = mesh
-        _base_meshes[("Ball", None)] = mesh
+    elif canonical == "RbxShared_Cylinder":
+        bmesh.ops.create_cone(bm, cap_ends=True, cap_tris=False, segments=20, radius1=0.5, radius2=0.5,
+                              depth=1.0, matrix=Matrix.Rotation(math.radians(90.0), 4, 'Y'))
+    else:  # RbxShared_Wedge
+        rbx_verts = [(-0.5, -0.5, -0.5), (0.5, -0.5, -0.5), (0.5, -0.5, 0.5),
+                     (-0.5, -0.5, 0.5), (-0.5, 0.5, 0.5), (0.5, 0.5, 0.5)]
+        v = [bm.verts.new(Vector((x, -z, y))) for x, y, z in rbx_verts]
+        bm.faces.new([v[0], v[1], v[2], v[3]])
+        bm.faces.new([v[3], v[2], v[5], v[4]])
+        bm.faces.new([v[0], v[3], v[4]])
+        bm.faces.new([v[1], v[5], v[2]])
+        bm.faces.new([v[0], v[4], v[5], v[1]])
+    bm.to_mesh(mesh)
+    bm.free()
+    mesh.materials.append(None)
+    return mesh
 
-    if not is_mesh_valid(_base_meshes.get(("Cylinder", None))):
-        mesh = bpy.data.meshes.new("RbxShared_Cylinder")
-        mesh.use_fake_user = True
-        bm = bmesh.new()
-        bmesh.ops.create_cone(
-            bm,
-            cap_ends=True,
-            cap_tris=False,
-            segments=20,
-            radius1=0.5,
-            radius2=0.5,
-            depth=1.0,
-            matrix=Matrix.Rotation(math.radians(90.0), 4, 'Y')
-        )
-        bm.to_mesh(mesh)
-        bm.free()
-        mesh.materials.append(None)
-        _base_meshes[("Cylinder", None)] = mesh
 
-    if not is_mesh_valid(_base_meshes.get(("Wedge", None))):
-        mesh = bpy.data.meshes.new("RbxShared_Wedge")
-        mesh.use_fake_user = True
-        bm = bmesh.new()
-        rbx_verts = [
-            Vector((-0.5, -0.5, -0.5)),
-            Vector(( 0.5, -0.5, -0.5)),
-            Vector(( 0.5, -0.5,  0.5)),
-            Vector((-0.5, -0.5,  0.5)),
-            Vector((-0.5,  0.5,  0.5)),
-            Vector(( 0.5,  0.5,  0.5)),
-        ]
-        bl_verts = [Vector((v.x, -v.z, v.y)) for v in rbx_verts]
-        bm_verts = [bm.verts.new(v) for v in bl_verts]
-        bm.verts.ensure_lookup_table()
-        bm.faces.new([bm_verts[0], bm_verts[1], bm_verts[2], bm_verts[3]])
-        bm.faces.new([bm_verts[3], bm_verts[2], bm_verts[5], bm_verts[4]])
-        bm.faces.new([bm_verts[0], bm_verts[3], bm_verts[4]])
-        bm.faces.new([bm_verts[1], bm_verts[5], bm_verts[2]])
-        bm.faces.new([bm_verts[0], bm_verts[4], bm_verts[5], bm_verts[1]])
-        bm.to_mesh(mesh)
-        bm.free()
-        mesh.materials.append(None)
-        _base_meshes[("Wedge", None)] = mesh
+def _unit_extent(mesh):
+    """Shared primitives fit exactly in a unit box centered on the origin."""
+    if len(mesh.vertices) == 0:
+        return False
+    extent = max(abs(c) for v in mesh.vertices for c in v.co)
+    return 0.499 < extent < 0.501
+
+
+def _repair_shared(canonical, mesh):
+    """
+    The shared mesh was edited in Blender (e.g. "Apply Scale" on a part changes the shared mesh in place,
+    because its other user is only the fake user). Rebuild it in place so every part using it is fixed at once.
+    """
+    fresh = _build_shared(canonical, canonical + "_rebuild")
+    mesh_loader.copy_geometry(mesh, fresh)
+    bpy.data.meshes.remove(fresh)
+    mesh_loader.stamp_geometry(mesh)
+    print(f"[Roblox Live Link] Restored edited shared mesh {canonical}")
+
+
+def init_shared_meshes():
+    for key, canonical in _SHARED_MESH_NAMES.items():
+        mesh = _base_meshes.get(key)
+        if not is_mesh_valid(mesh):
+            # Reuse meshes already in the .blend (after "Reload Addon" or reopening a file) instead of ".001" copies
+            mesh = bpy.data.meshes.get(canonical)
+            if mesh is None or len(mesh.vertices) == 0:
+                mesh = _build_shared(canonical, canonical)
+                mesh.use_fake_user = True
+                mesh_loader.stamp_geometry(mesh)
+            elif mesh.get("rbx_geo") is None:
+                # Mesh from an older version: check it once, then remember its geometry
+                if not _unit_extent(mesh):
+                    _repair_shared(canonical, mesh)
+                mesh_loader.stamp_geometry(mesh)
+            _base_meshes[key] = mesh
+            mesh_loader.protect_shared(mesh)
+        if not mesh_loader.geometry_intact(mesh):
+            _repair_shared(canonical, mesh)
 
 
 def get_shared_mesh(shape_type, target_face=None):
@@ -1031,10 +1028,11 @@ def _leaf_collection_name(obj):
     return cols[0].name if cols else ""
 
 
-def record_sync_state(rbx_id, obj, size=None, offset=None, is_model=False, matrix=None):
+def record_sync_state(rbx_id, obj, size=None, offset=None, is_model=False, matrix=None, ratio_size=False):
     """
     Remembers the object's world matrix right after it was synced, to detect user edits later.
     Pass `matrix` when it was just assigned (obj.matrix_world may not reflect loc/scale edits until depsgraph update).
+    ratio_size: the visible mesh doesn't match Part.Size (SpecialMesh), so size follows scale changes instead.
     """
     m = matrix.copy() if matrix is not None else obj.matrix_world.copy()
     _sync_state[rbx_id] = {
@@ -1043,6 +1041,7 @@ def record_sync_state(rbx_id, obj, size=None, offset=None, is_model=False, matri
         "size": list(size) if size is not None else blender_dimensions_to_rbx_size(obj),
         "offset": offset,
         "is_model": is_model,
+        "ratio_size": ratio_size,
         "collection": _leaf_collection_name(obj),
     }
 
@@ -1076,8 +1075,9 @@ def _object_to_rbx_part(obj, state):
     if state and state.get("is_model"):
         return pos, rot, None
 
-    if state:
-        # Size scales proportionally with the object's scale (Blender axes -> Roblox axes: X->X, Z->Y, Y->Z)
+    if state and state.get("ratio_size"):
+        # SpecialMesh: the mesh isn't the part box, so Size follows the scale change
+        # (Blender axes -> Roblox axes: X->X, Z->Y, Y->Z)
         old_scale = state["scale"]
         new_scale = mw.to_scale()
         old_size = state["size"]
@@ -1086,6 +1086,8 @@ def _object_to_rbx_part(obj, state):
         fz = new_scale.z / old_scale.z if abs(old_scale.z) > 1e-9 else 1.0
         size = [max(0.05, old_size[0] * fx), max(0.05, old_size[1] * fz), max(0.05, old_size[2] * fy)]
     else:
+        # Real object size: stays correct after "Apply Scale" (Ctrl+A) or editing the mesh,
+        # where the scale ratio would shrink the part to a tiny cube
         size = blender_dimensions_to_rbx_size(obj)
     return pos, rot, size
 
@@ -1143,7 +1145,8 @@ def queue_outgoing_transform(obj, action="update"):
         # (Blender collection names are globally unique, so names may differ from Studio folders.)
         change["folder_path"] = get_object_folder_path(obj)
 
-    record_sync_state(rbx_id, obj, size=size, offset=(state or {}).get("offset"))
+    record_sync_state(rbx_id, obj, size=size, offset=(state or {}).get("offset"),
+                      ratio_size=bool((state or {}).get("ratio_size")))
     with _outgoing_lock:
         _outgoing_changes[rbx_id] = change
 
@@ -1801,6 +1804,15 @@ def _layered_face_materials(base_mat, surfaces_list, size):
     return face_mats
 
 
+def _is_unit_box(mesh):
+    """False when the box was edited in Blender (e.g. scale applied into the mesh): then it is rebuilt."""
+    verts = mesh.vertices
+    if len(verts) != 24:
+        return False
+    extent = max(abs(c) for v in verts for c in v.co)
+    return 0.499 < extent < 0.501
+
+
 def _layered_mesh(inst_id, base_mat, face_mats, size):
     """Per-object box mesh with per-face materials/UVs; rebuilt only when size, layers or materials change."""
     sig = surfaces.signature({
@@ -1810,7 +1822,7 @@ def _layered_mesh(inst_id, base_mat, face_mats, size):
     })
     name = _fit_id_name(f"RbxLayered_{inst_id}")
     mesh = bpy.data.meshes.get(name)
-    if mesh is not None and mesh.get("rbx_layer_sig") == sig:
+    if mesh is not None and mesh.get("rbx_layer_sig") == sig and _is_unit_box(mesh):
         return mesh
     if mesh is None:
         mesh = bpy.data.meshes.new(name)
@@ -1920,12 +1932,16 @@ def update_or_create_instance(inst_data, col):
             obj.name = name
         _move_to_collection(obj, target_col)
         # Swap mesh only when the *source* mesh changed (keeps per-object copies, e.g. R15 clothing UVs)
-        if obj.get("rbx_src_mesh") != expected_mesh.name and not obj.get("csg_cache_key"):
+        # Swap when the source mesh changed, or when the object got another mesh in Blender
+        # (e.g. "Apply Scale" on a shared mesh makes a single-user copy with the scale baked in).
+        # Per-object R15 clothing copies are kept.
+        r15_copy = bool(obj.get("_r15_uv_mapped")) and obj.get("rbx_src_mesh") == expected_mesh.name
+        if obj.data != expected_mesh and not obj.get("csg_cache_key") and not r15_copy:
             old_mesh = obj.data
             obj.data = expected_mesh
             if "_r15_uv_mapped" in obj:
                 del obj["_r15_uv_mapped"]
-            if old_mesh and old_mesh.name.startswith("RbxLayered_") and old_mesh.users == 0:
+            if old_mesh and old_mesh.users == 0 and old_mesh.name.startswith("Rbx"):
                 bpy.data.meshes.remove(old_mesh)
 
     obj["rbx_name"] = name
@@ -1974,7 +1990,8 @@ def update_or_create_instance(inst_data, col):
             final_matrix.translation = part_matrix.translation + part_matrix.to_3x3() @ local_off
         final_matrix = final_matrix @ Matrix.Diagonal((sx, sy, sz, 1.0))
         obj.matrix_world = final_matrix
-        record_sync_state(inst_id, obj, size=size, offset=local_off, matrix=final_matrix)
+        record_sync_state(inst_id, obj, size=size, offset=local_off, matrix=final_matrix,
+                          ratio_size=bool(mesh_scale and len(mesh_scale) == 3))
     finally:
         _is_applying_roblox_update = False
 
