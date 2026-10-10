@@ -10,7 +10,7 @@
     - Zero Studio freezing (no heavy CSG separation, batched change checks)
 ]]
 
-local PLUGIN_VERSION = "1.3.0-beta"
+local PLUGIN_VERSION = "1.3.1-beta"
 
 local HttpService = game:GetService("HttpService")
 local RunService = game:GetService("RunService")
@@ -18,13 +18,13 @@ local Workspace = game:GetService("Workspace")
 local Selection = game:GetService("Selection")
 local ChangeHistoryService = game:GetService("ChangeHistoryService")
 
--- Плагин работает только в Edit-режиме (в Play-тесте Studio запускает копии плагина в клиенте/сервере)
+-- The plugin works only in Edit mode (in a Play test Studio runs copies of the plugin on the client/server)
 if not RunService:IsEdit() then
     return
 end
 
 local DEFAULT_PORT = 28888
--- Порт сервера Blender: по умолчанию 28888, другой можно задать атрибутом Workspace "LiveLinkPort"
+-- Blender server port: 28888 by default, another one can be set with the Workspace attribute "LiveLinkPort"
 local function baseUrl(): string
     local port = Workspace:GetAttribute("LiveLinkPort")
     if typeof(port) ~= "number" or port < 1024 or port > 65535 then
@@ -35,9 +35,9 @@ end
 local SYNC_INTERVAL = 0.20
 local OFFLINE_RETRY_INTERVAL = 1.5
 local FULL_SYNC_CHUNK_SIZE = 500
--- Сколько деталей за тик проверяется на "дорогие" изменения (текстуры, папки)
+-- How many parts per tick are checked for "expensive" changes (textures, folders)
 local EXPENSIVE_CHECKS_PER_TICK = 150
--- Минимальный интервал между повторными отправками одной и той же объединённой модели (при перетаскивании)
+-- Minimum interval between re-sends of the same merged model (while dragging)
 local MODEL_RESEND_INTERVAL = 0.4
 
 -- Sync Modes: "Selection" (default & fastest), "BlenderSync" (folder only), "Workspace" (entire scene)
@@ -55,7 +55,7 @@ local lastSyncTime = 0
 local serverAvailable = false
 local lastErrorTime = 0
 local needInitialFullSync = true
--- Удалять ли в Blender объекты, которых нет в следующей полной синхронизации
+-- Whether Blender deletes objects that are missing from the next full sync
 local pruneNextFullSync = false
 local currentSyncSession = 0
 local serverSession: string? = nil
@@ -76,7 +76,7 @@ local partByIdMap: { [string]: Instance } = {}
 
 -- Selection mode: everything ever selected while syncing stays tracked until it is deleted in Studio
 local selectionRoots: { Instance } = {}
--- Кэш: под каким из selectionRoots лежит деталь (чтобы не перебирать все корни каждый тик)
+-- Cache: which of the selectionRoots a part belongs to (so all roots aren't scanned every tick)
 local rootOfPart: { [BasePart]: Instance } = setmetatable({}, { __mode = "k" }) :: any
 -- Parts created from Blender stay tracked regardless of mode/selection
 local blenderCreatedParts: { [BasePart]: boolean } = {}
@@ -87,8 +87,8 @@ local dirtyModels: { [Model]: boolean } = {}
 local modelLastSent: { [Model]: number } = {}
 local expensiveCursor = 1
 
--- Иконки кнопок (исходники PNG: roblox_plugin/icons). Встроенные rbxasset://textures/... пропадают
--- при обновлениях Studio, поэтому иконки загружены как собственные ассеты.
+-- Button icons (PNG sources: roblox_plugin/icons). Built-in rbxasset://textures/... disappear
+-- with Studio updates, so the icons are uploaded as our own assets.
 local ICONS = {
     syncToggle = "rbxassetid://125947218197808",
     modeSelection = "rbxassetid://137194228353891",
@@ -137,7 +137,7 @@ end
 local function getOrCreateId(instance: Instance): string
     local id = instance:GetAttribute("LiveLinkId")
     if not id or typeof(id) ~= "string" or id == "" or (partByIdMap[id] and partByIdMap[id] ~= instance and partByIdMap[id].Parent ~= nil) then
-        -- Новый объект или копия (Ctrl+D копирует атрибут) — нужен собственный ID
+        -- New object or a copy (Ctrl+D copies the attribute): it needs its own ID
         id = HttpService:GenerateGUID(false)
         instance:SetAttribute("LiveLinkId", id)
     end
@@ -145,8 +145,8 @@ local function getOrCreateId(instance: Instance): string
     return id :: string
 end
 
--- Числовой ID ассета из "rbxassetid://123", "http://www.roblox.com/asset/?id=123", ".../v1/asset?id=123".
--- Простой поиск первой группы цифр здесь не годится: в "/v1/asset?id=123" он вернёт "1".
+-- Numeric asset ID from "rbxassetid://123", "http://www.roblox.com/asset/?id=123", ".../v1/asset?id=123".
+-- Taking the first group of digits doesn't work here: for "/v1/asset?id=123" it would return "1".
 local function assetIdOf(content: string): string?
     return string.match(content, "[?&]id=(%d+)")
         or string.match(content, "rbxassetid://(%d+)")
@@ -154,12 +154,12 @@ local function assetIdOf(content: string): string?
         or string.match(content, "^(%d+)$")
 end
 
--- 32-битный FNV-1a: короткий стабильный хеш для любого текста (в т.ч. кириллицы)
+-- 32-bit FNV-1a: a short stable hash for any text (including Cyrillic)
 local function hashString(s: string): string
     local h = 2166136261
     for i = 1, #s do
         h = bit32.bxor(h, string.byte(s, i))
-        -- h * 16777619 по модулю 2^32 без потери точности double
+        -- h * 16777619 modulo 2^32 without losing double precision
         h = (bit32.lshift(h, 24) + bit32.lshift(h, 8) + bit32.lshift(h, 7) + bit32.lshift(h, 4) + bit32.lshift(h, 1) + h) % 4294967296
     end
     return string.format("%08x", h)
@@ -177,7 +177,7 @@ local function getPartShape(part: BasePart): string
     return "Block"
 end
 
--- GetAppliedDescription() создаёт новую копию HumanoidDescription при каждом вызове — кэшируем
+-- GetAppliedDescription() creates a new HumanoidDescription copy on every call, so it is cached
 local descCache: { [Humanoid]: { desc: HumanoidDescription?, t: number } } = setmetatable({}, { __mode = "k" }) :: any
 
 local function getAppliedDescriptionCached(hum: Humanoid): HumanoidDescription?
@@ -200,7 +200,7 @@ local function getAppliedDescriptionCached(hum: Humanoid): HumanoidDescription?
 end
 
 local function getMeshTextureId(part: BasePart): string?
-    -- SurfaceAppearance перекрывает TextureID при рендере
+    -- SurfaceAppearance overrides TextureID when rendering
     local sa = part:FindFirstChildWhichIsA("SurfaceAppearance")
     if sa then
         local ok, colorMap = pcall(function()
@@ -378,8 +378,8 @@ local function getPartTextureInfo(part: BasePart, meshTextureId: string?)
             if textLabel and textLabel.Visible and textLabel.Text ~= "" then
                 local textColor = textLabel.TextColor3
                 local bgColor = textLabel.BackgroundColor3
-                -- Хеш по полному тексту и цветам: gsub("[^%w_]") вырезает кириллицу целиком,
-                -- и разные русские надписи получали одинаковый ID (а в Blender — одну текстуру)
+                -- Hash of the full text and colors: gsub("[^%w_]") strips Cyrillic completely,
+                -- so different Russian labels got the same ID (and the same texture in Blender)
                 local stableId = "txt_" .. hashString(string.format("%s|%.3f,%.3f,%.3f|%.3f,%.3f,%.3f|%.2f",
                     textLabel.Text, textColor.R, textColor.G, textColor.B,
                     bgColor.R, bgColor.G, bgColor.B, textLabel.BackgroundTransparency))
@@ -416,15 +416,15 @@ local function texKeyOf(texInfo: any): string
 end
 
 --------------------------------------------------------------------------------
--- Слои поверхности детали: все Decal, Texture и SurfaceGui (на каждой грани их может быть несколько).
--- Blender раскладывает их по граням и "запекает" декали и GUI в текстуру грани.
+-- Surface layers of a part: all Decals, Textures and SurfaceGuis (a face can have several).
+-- Blender puts them on the right faces and bakes decals and GUIs into the face texture.
 --------------------------------------------------------------------------------
 
 local function color3Arr(c: Color3): { number }
     return { c.R, c.G, c.B }
 end
 
--- UIStroke в режиме Contextual на текстовом объекте обводит текст, в остальных случаях — рамку
+-- UIStroke in Contextual mode on a text object outlines the text, otherwise the border
 local function getStrokes(obj: GuiObject, isText: boolean): (any, any)
     local textStroke, borderStroke = nil, nil
     for _, ch in ipairs(obj:GetChildren()) do
@@ -505,7 +505,7 @@ local function serializeGuiObject(obj: GuiObject, origin: Vector2): any?
     return if hasContent then el else nil
 end
 
--- Порядок отрисовки как в Roblox (ZIndexBehavior.Sibling): родитель, затем дети по ZIndex
+-- Draw order as in Roblox (ZIndexBehavior.Sibling): the parent, then children by ZIndex
 local function collectGuiElements(container: Instance, origin: Vector2, out: { any })
     local kids: { GuiObject } = {}
     for _, ch in ipairs(container:GetChildren()) do
@@ -534,7 +534,7 @@ local function collectGuiElements(container: Instance, origin: Vector2, out: { a
     end
 end
 
--- Размер холста SurfaceGui в пикселях GUI (AbsoluteSize, а если он ещё не посчитан — по настройкам)
+-- SurfaceGui canvas size in GUI pixels (AbsoluteSize, or from the settings if it isn't computed yet)
 local function surfaceGuiCanvas(gui: SurfaceGui, part: BasePart): Vector2
     local abs = gui.AbsoluteSize
     if abs.X > 0 and abs.Y > 0 then
@@ -595,7 +595,7 @@ local function getSurfaceLayers(part: BasePart): ({ any }?, string)
     return layers, if ok then hashString(json) else tostring(#layers)
 end
 
--- Ключ "дорогих" изменений детали: старый texture_info + все слои поверхности
+-- Key of a part's "expensive" changes: the old texture_info + all surface layers
 local function partTexKey(part: BasePart, texInfo: any?): string
     local _, sig = getSurfaceLayers(part)
     return texKeyOf(texInfo or getPartTextureInfo(part, getMeshTextureId(part))) .. "#" .. sig
@@ -615,7 +615,7 @@ local function getFolderCollectionPath(inst: Instance): { string }
     return path
 end
 
--- Материал вместе с MaterialVariant: смена варианта тоже должна уходить в Blender
+-- Material together with MaterialVariant: a variant change must be sent to Blender too
 local function materialKeyOf(part: BasePart): string
     return part.Material.Name .. "/" .. part.MaterialVariant
 end
@@ -672,7 +672,7 @@ local function getMeshData(part: BasePart): (string?, { number }?, { number }?)
     return meshId, meshScale, meshOffset
 end
 
--- MaterialVariant детали: заданный на самой детали или переопределение базового материала в MaterialService
+-- A part's MaterialVariant: set on the part itself, or a MaterialService override of the base material
 local MaterialService = game:GetService("MaterialService")
 local function getMaterialVariantData(part: BasePart): any?
     local name = part.MaterialVariant
@@ -680,7 +680,7 @@ local function getMaterialVariantData(part: BasePart): any?
         local ok, override = pcall(function()
             return MaterialService:GetBaseMaterialOverride(part.Material)
         end)
-        -- Без переопределения возвращается имя самого материала
+        -- Without an override the name of the material itself is returned
         if ok and typeof(override) == "string" and override ~= "" and override ~= part.Material.Name then
             name = override
         end
@@ -806,7 +806,7 @@ local addSelectionRoots: (instances: { Instance }) -> boolean
 
 local function serializeCompoundModel(model: Model): any
     if syncMode == "Selection" then
-        -- Выделили деталь внутри модели: в Blender уходит вся модель, значит и отслеживать её нужно целиком
+        -- A part inside a model was selected: the whole model goes to Blender, so the whole model is tracked
         addSelectionRoots({ model })
     end
     local _, size = model:GetBoundingBox()
@@ -827,7 +827,7 @@ local function serializeCompoundModel(model: Model): any
             local relCf = invModelCf * part.CFrame
             local rComps = { relCf:GetComponents() }
 
-            -- Детали модели отслеживаются, но в Blender уходят только как часть общей модели
+            -- The model's parts are tracked, but go to Blender only as part of the merged model
             compoundOfPart[part] = model
             if not trackedPartsMap[part] then
                 trackedPartsMap[part] = true
@@ -892,7 +892,7 @@ local function isEligiblePart(inst: Instance): boolean
     end
 
     if syncMode == "Selection" then
-        -- Быстрый путь: корень, под которым деталь была найдена в прошлый раз
+        -- Fast path: the root the part was found under last time
         local cachedRoot = rootOfPart[inst :: BasePart]
         if cachedRoot and cachedRoot.Parent and (inst == cachedRoot or inst:IsDescendantOf(cachedRoot)) then
             return true
@@ -968,7 +968,7 @@ function addSelectionRoots(instances: { Instance }): boolean
                 end
             end
             if not covered then
-                -- Новый корень поглощает уже добавленные вложенные корни
+                -- A new root absorbs nested roots that were already added
                 for i = #selectionRoots, 1, -1 do
                     local root = selectionRoots[i]
                     if root:IsDescendantOf(inst) then
@@ -1121,7 +1121,7 @@ local function applyOneChange(change: any)
             if target then
                 local delta = target * getModelFrame(model):Inverse()
                 model:PivotTo(delta * model:GetPivot())
-                -- Обновляем кэш, чтобы движение не вернулось эхом обратно в Blender
+                -- Update the cache so the movement doesn't echo back to Blender
                 for _, d in ipairs(model:GetDescendants()) do
                     if d:IsA("BasePart") then
                         local cached = partStateCache[d]
@@ -1149,7 +1149,7 @@ local function applyOneChange(change: any)
         if cf then
             part.CFrame = cf
         end
-        -- folder_path приходит только если объект реально перенесли в другую коллекцию в Blender
+        -- folder_path comes only if the object was actually moved to another collection in Blender
         if typeof(change.folder_path) == "table" then
             local targetParent = getOrCreateTargetFolder(change.folder_path)
             if part.Parent ~= targetParent then
@@ -1161,7 +1161,7 @@ local function applyOneChange(change: any)
 end
 
 local function applyBlenderChanges(changes: { any })
-    -- Одна точка Undo (Ctrl+Z) на пакет изменений из Blender
+    -- One Undo point (Ctrl+Z) per batch of changes from Blender
     local recording: string? = nil
     local okRec, rec = pcall(function()
         return ChangeHistoryService:TryBeginRecording("Blender Live Link")
@@ -1381,7 +1381,7 @@ local function runInitialFullSync()
             pruneNextFullSync = false
             print(string.format("[Roblox Live Link] Scene sync completed: %d objects sent.", totalCount))
         else
-            -- Blender недоступен: повторим полную синхронизацию, когда сервер появится
+            -- Blender is unavailable: repeat the full sync once the server is back
             needInitialFullSync = true
         end
     end
@@ -1390,7 +1390,7 @@ end
 local function sendInitialFullSync()
     isFullSyncing = true
     local ok, err = pcall(runInitialFullSync)
-    -- Сбрасываем флаг при любой ошибке, иначе syncTick навсегда перестаёт что-либо отправлять
+    -- Reset the flag on any error, otherwise syncTick stops sending anything forever
     isFullSyncing = false
     if not ok then
         warn("[Roblox Live Link] Scene sync failed: " .. tostring(err))
@@ -1454,14 +1454,14 @@ local function syncTick()
 
             if changed then
                 local model = compoundOfPart[part]
-                -- Новая деталь или смена родителя: к какой объединённой модели она теперь относится
+                -- New part or a parent change: which merged model it belongs to now
                 if importMode == "MergeModels" and (not cached or (cached.folderKey ~= folderKey)) then
                     local newModel = getTopModel(part, roots)
                     if newModel ~= model then
                         if model then
                             dirtyModels[model] = true
                         elseif cached then
-                            -- была отдельной деталью в Blender, теперь входит в модель
+                            -- it was a separate part in Blender, now it is part of a model
                             local id = staleIdOf(part)
                             if id then
                                 table.insert(staleIds, id)
@@ -1482,14 +1482,14 @@ local function syncTick()
                         table.insert(diffParts, part)
                         partStateCache[part] = makePartState(part, texKeyOf(data.texture_info) .. "#" .. data.surfaces_sig, table.concat(data.folder_path, "/"))
                     else
-                        -- Запоминаем состояние, чтобы не спамить предупреждением каждый тик
+                        -- Remember the state so the warning isn't spammed every tick
                         partStateCache[part] = makePartState(part, texKey or "", folderKey or "")
                         warnSerializeError(part, data)
                     end
                 end
             end
         else
-            -- Деталь удалена / вынесена из Workspace / больше не подходит под режим
+            -- Part deleted / moved out of Workspace / no longer matches the mode
             trackedPartsMap[part] = nil
             partStateCache[part] = nil
             local model = compoundOfPart[part]
@@ -1507,11 +1507,11 @@ local function syncTick()
     trackedPartsList = survivingParts
     expensiveCursor = if expEnd >= count then 1 else expEnd + 1
 
-    -- Объединённые модели, в которых что-то изменилось, отправляются целиком
+    -- Merged models with any change are sent as a whole
     local now = os.clock()
     for model in pairs(dirtyModels) do
         if now - (modelLastSent[model] or 0) < MODEL_RESEND_INTERVAL then
-            continue -- остаётся "грязной" до следующего тика (троттлинг при перетаскивании)
+            continue -- stays "dirty" until the next tick (throttling while dragging)
         end
         dirtyModels[model] = nil
         local alive = model.Parent ~= nil and model:IsDescendantOf(Workspace)
@@ -1545,7 +1545,7 @@ local function syncTick()
             remove_ids = staleIds,
         })
         if not ok then
-            -- Не теряем изменения: при следующей удачной отправке они уйдут снова
+            -- Don't lose changes: they are sent again with the next successful request
             for _, p in ipairs(diffParts) do
                 partStateCache[p] = nil
             end
@@ -1554,7 +1554,7 @@ local function syncTick()
                 modelLastSent[m] = 0
             end
             if #staleIds > 0 then
-                -- Сначала полная синхронизация с удалением лишнего, т.к. ID удалённых деталей уже потеряны
+                -- First a full sync that deletes extras, since the IDs of deleted parts are already lost
                 needInitialFullSync = true
                 pruneNextFullSync = syncMode ~= "Selection" or pruneNextFullSync
             end
@@ -1572,7 +1572,7 @@ local function onDescendantAdded(desc: Instance)
     if not isSyncing or isFullSyncing then
         return
     end
-    -- Удаления не нужно отслеживать отдельно: syncTick сам видит part.Parent == nil
+    -- Deletions don't need separate tracking: syncTick itself sees part.Parent == nil
     if desc:IsA("BasePart") and isEligiblePart(desc) then
         trackPart(desc :: BasePart)
     end
@@ -1582,7 +1582,7 @@ local function onSelectionChanged()
     if not isSyncing or syncMode ~= "Selection" then
         return
     end
-    -- Аддитивно: новые выделенные объекты добавляются, снятие выделения ничего не удаляет в Blender
+    -- Additive: newly selected objects are added, deselecting removes nothing in Blender
     local selected = Selection:Get()
     if addSelectionRoots(selected) then
         for _, inst in ipairs(selected) do
@@ -1603,7 +1603,7 @@ local function setSyncState(enabled: boolean)
     if enabled then
         print(string.format("[Roblox Live Link] Starting sync in [%s] mode...", syncMode))
         needInitialFullSync = true
-        -- Selection: в Blender могли остаться объекты прошлых сессий — не удаляем их
+        -- Selection: Blender may still have objects from earlier sessions, so they aren't deleted
         pruneNextFullSync = syncMode ~= "Selection"
         lastSyncTime = 0
         serverSession = nil

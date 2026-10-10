@@ -4,7 +4,7 @@ Registers operators, UI panel, and manages server lifecycle.
 """
 
 # Keep in sync with "version" in blender_manifest.toml and PLUGIN_VERSION in the Studio plugin
-VERSION_LABEL = "1.3.0-beta"
+VERSION_LABEL = "1.3.1-beta"
 
 import importlib
 import bpy
@@ -12,6 +12,7 @@ from bpy.props import IntProperty, FloatProperty, BoolProperty
 from bpy.types import Panel, Operator, PropertyGroup
 
 from . import paths
+from . import downloads
 from . import server
 from . import mesh_loader
 from . import surfaces
@@ -20,6 +21,7 @@ from . import sync_manager
 
 # Ensure hot-reloading submodules when files change
 importlib.reload(paths)
+importlib.reload(downloads)
 importlib.reload(server)
 importlib.reload(mesh_loader)
 importlib.reload(surfaces)
@@ -124,13 +126,14 @@ class ROBLOX_OT_reload_addon(Operator):
 
     def execute(self, context):
         # Stop the running server/timer first: reloading resets module globals, which would
-        # otherwise leave an orphaned server thread holding the port.
+        # otherwise leave an orphaned server socket holding the port.
         was_running = server.is_running()
         port = server.get_port()
         if was_running:
             sync_manager.stop_sync_timer()
             server.stop_server()
         importlib.reload(paths)
+        importlib.reload(downloads)
         importlib.reload(server)
         importlib.reload(mesh_loader)
         importlib.reload(surfaces)

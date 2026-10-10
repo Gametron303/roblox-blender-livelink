@@ -1,4 +1,4 @@
-# Roblox Studio ↔ Blender Live Link — 1.3.0-beta
+# Roblox Studio ↔ Blender Live Link — 1.3.1-beta
 
 > ⚠️ **Бета-версия, ещё тестируется.** Возможны ошибки, а поведение может измениться
 > в следующих версиях. Перед работой сохраняйте плейс и `.blend`. Об ошибках пишите
@@ -16,7 +16,7 @@
 
 | Часть | Файл релиза | Что делает |
 |---|---|---|
-| Расширение Blender | `roblox_blender_livelink-1.3.0-beta-<платформа>.zip` | Локальный сервер на `127.0.0.1:28888`, строит сцену в Blender |
+| Расширение Blender | `roblox_blender_livelink-1.3.1-beta-<платформа>.zip` | Локальный сервер на `127.0.0.1:28888`, строит сцену в Blender |
 | Плагин Studio | `RobloxLiveLink.lua` | Отправляет сцену в Blender и принимает изменения обратно |
 
 Поддерживаются **Windows и macOS** (Roblox Studio существует только там) и **Blender 4.2 и новее**.
@@ -31,7 +31,7 @@
    и удалите её. Иначе обе версии будут бороться за порт 28888. Скачанные ею текстуры и меши
    новая версия при первом включении перенесёт к себе сама.
 2. Возьмите zip для своей системы:
-   - Windows — `roblox_blender_livelink-1.3.0-beta-windows_x64.zip`
+   - Windows — `roblox_blender_livelink-1.3.1-beta-windows_x64.zip`
    - Mac на Apple Silicon (M1–M4) — `...-macos_arm64.zip`
    - Mac на Intel — `...-macos_x64.zip`
 3. Перетащите zip в окно Blender **или** откройте **Edit → Preferences → Get Extensions → ⌄ →
@@ -58,7 +58,7 @@ Pillow (для надписей и SurfaceGui) уже лежит внутри р
 После установки:
 1. Перезапустите Studio.
 2. На вкладке **Plugins** появится панель **Blender Bridge** с тремя кнопками, а в Output строка
-   `[Roblox Live Link] Plugin ready (v1.3.0-beta)...`.
+   `[Roblox Live Link] Plugin ready (v1.3.1-beta)...`.
 3. При первом подключении Studio спросит разрешение на HTTP-запросы к `127.0.0.1`. Нажмите **Allow**.
 
 ---
@@ -256,6 +256,6 @@ python tools/build_release.py --blender "C:/Program Files/Blender Foundation/Ble
 ## Об авторстве
 
 Это расширение для Blender и плагин для Roblox Studio целиком сделаны с помощью ИИ. Первые версии
-(до 1.2) написаны в Google Antigravity, а версия 1.3.0-beta (проверка и исправление ошибок, импорт
+(до 1.2) написаны в Google Antigravity, а версии начиная с 1.3.0-beta (проверка и исправление ошибок, импорт
 текстур и SurfaceGui, процедурные материалы, переход на формат Extension, иконки, документация
-и сборка релиза) сделана с помощью **Claude** (ИИ от Anthropic).
+и сборка релиза) сделаны с помощью **Claude** (ИИ от Anthropic).

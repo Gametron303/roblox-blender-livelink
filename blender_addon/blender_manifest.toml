@@ -2,7 +2,7 @@ schema_version = "1.0.0"
 
 # Keep "version" in sync with VERSION_LABEL in __init__.py and PLUGIN_VERSION in the Studio plugin
 id = "roblox_blender_livelink"
-version = "1.3.0-beta"
+version = "1.3.1-beta"
 name = "Roblox Studio Live Link (Beta)"
 tagline = "Live two-way sync between Roblox Studio and Blender (beta)"
 maintainer = "Copperhead"

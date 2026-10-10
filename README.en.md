@@ -1,4 +1,4 @@
-# Roblox Studio Live Link — 1.3.0-beta
+# Roblox Studio Live Link — 1.3.1-beta
 
 > ⚠️ **Beta — still being tested.** Expect bugs, and behavior may change between versions.
 > Save your place and your `.blend` file before working. Bug reports are very welcome
@@ -10,7 +10,7 @@ SurfaceGui text from Studio appear in Blender and update in real time. Moving, r
 objects in Blender sends the change back to Studio.
 
 The extension runs a small local server (`127.0.0.1:28888`). A companion Roblox Studio plugin
-(included in the download) sends the scene to it and applies changes coming back from Blender.
+(installed separately, from the Roblox Creator Store) sends the scene to it and applies changes coming back from Blender.
 
 ## Features
 
@@ -145,6 +145,6 @@ trademarks of Roblox Corporation.*
 ## About
 
 This Blender extension and the Roblox Studio plugin were made entirely with AI. The first versions
-(up to 1.2) were written in Google Antigravity; version 1.3.0-beta (bug review and fixes, texture and
+(up to 1.2) were written in Google Antigravity; versions 1.3.0-beta and later (bug review and fixes, texture and
 SurfaceGui import, procedural materials, the move to the Extension format, icons, documentation and
-release packaging) was made with **Claude** (Anthropic's AI).
+release packaging) were made with **Claude** (Anthropic's AI).

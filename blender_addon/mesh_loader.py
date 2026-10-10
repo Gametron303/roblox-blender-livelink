@@ -15,16 +15,14 @@ import gzip
 import os
 import re
 import struct
-import threading
-import urllib.request
 import bpy
 
 from . import paths
+from . import downloads
 
 # Downloaded .mesh files (extension user folder)
 MESH_CACHE_DIR = paths.cache_dir("meshes")
 
-_downloading_mesh_ids = set()
 # Asset IDs that failed to download (private asset, 401/403, not a mesh) - never retried this session
 _failed_mesh_ids = set()
 _created_mesh_cache = {}
@@ -341,41 +339,22 @@ def parse_roblox_mesh(data_bytes):
 
 
 def async_download_mesh(clean_id):
-    if clean_id in _downloading_mesh_ids or clean_id in _failed_mesh_ids:
+    """Downloads a .mesh in a separate process (see downloads.py); never blocks Blender."""
+    if clean_id in _failed_mesh_ids:
         return
     if not clean_id.isdigit():
         _failed_mesh_ids.add(clean_id)
         return
-    _downloading_mesh_ids.add(clean_id)
+    cache_file = os.path.join(MESH_CACHE_DIR, f"{clean_id}.mesh")
+    if os.path.exists(cache_file):
+        return
 
-    def _worker():
-        ok = False
-        try:
-            cache_file = os.path.join(MESH_CACHE_DIR, f"{clean_id}.mesh")
-            if os.path.exists(cache_file):
-                ok = True
-            else:
-                url = f"https://assetdelivery.roblox.com/v1/asset/?id={clean_id}"
-                req = urllib.request.Request(url, headers={"User-Agent": "Roblox/WinInet"})
-                with urllib.request.urlopen(req, timeout=8.0) as resp:
-                    raw = resp.read()
-                if raw.startswith(b"\x1f\x8b"):
-                    raw = gzip.decompress(raw)
-                # Don't cache error pages / non-mesh payloads
-                if b"version " in raw[:40]:
-                    tmp_file = cache_file + ".part"
-                    with open(tmp_file, "wb") as f:
-                        f.write(raw)
-                    os.replace(tmp_file, cache_file)
-                    ok = True
-        except Exception as e:
-            print(f"[Roblox Live Link] Mesh {clean_id} download failed: {e}")
-        finally:
-            if not ok:
-                _failed_mesh_ids.add(clean_id)
-            _downloading_mesh_ids.discard(clean_id)
+    def on_done(ok):
+        if not ok:
+            print(f"[Roblox Live Link] Mesh {clean_id} could not be downloaded")
+            _failed_mesh_ids.add(clean_id)
 
-    threading.Thread(target=_worker, daemon=True).start()
+    downloads.start("mesh", clean_id, cache_file, on_done)
 
 
 def extract_clean_asset_id(raw_str):

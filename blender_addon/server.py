@@ -1,44 +1,37 @@
 """
 Roblox Studio <-> Blender Live-Link: HTTP Server
-Runs in a background thread and queues incoming scene updates for main-thread processing.
+
+Single-threaded: the add-on's timer calls poll() on Blender's main thread, which handles the requests
+that are already waiting (non-blocking) and appends incoming scene updates to `sync_queue`.
 """
 
+import collections
 import json
-import logging
-import os
-import queue
+import select
 import socket
-import threading
 import uuid
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from socketserver import ThreadingMixIn
 
-logger = logging.getLogger("RobloxLiveLinkServer")
-
-# In-memory queue for passing data from the server thread to Blender's main thread
-sync_queue = queue.Queue(maxsize=500)
+# Incoming scene updates, consumed by sync_manager on the main thread
+sync_queue = collections.deque()
+# More pending updates than this means Blender can't keep up: Studio is told to retry later
+MAX_PENDING = 500
+# Requests handled per poll() call, so a burst of requests can't stall the UI
+MAX_REQUESTS_PER_POLL = 16
 
 _server_instance = None
-_server_thread = None
 _server_port = 28888
 _is_running = False
 # Unique per server start. Studio compares it and re-sends a full sync when Blender's server restarts.
 _server_session = ""
 
-ADDON_DIR = os.path.dirname(os.path.realpath(__file__))
-PLUGIN_SOURCE_CANDIDATES = (
-    # Release package: the Studio plugin ships inside the addon folder
-    os.path.join(ADDON_DIR, "roblox_plugin", "RobloxLiveLink.lua"),
-    # Source checkout: blender_addon/ next to roblox_plugin/
-    os.path.join(ADDON_DIR, "..", "roblox_plugin", "RobloxLiveLink.server.luau"),
-)
 
-
-class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
-    daemon_threads = True
+class LiveLinkHTTPServer(HTTPServer):
     # On Windows SO_REUSEADDR lets a second server bind the same port silently
     # (e.g. two Blender instances) and Studio requests then go to a random one.
     allow_reuse_address = False
+    # handle_request() returns at once when no connection is waiting
+    timeout = 0
 
     def server_bind(self):
         if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
@@ -50,8 +43,8 @@ class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
 
 
 class LiveLinkRequestHandler(BaseHTTPRequestHandler):
-    # A client that sends a short body or never finishes its request must not hold a thread forever
-    timeout = 30
+    # Requests are read on Blender's main thread: a client that stalls mid-request is dropped quickly
+    timeout = 5
 
     def log_message(self, format, *args):
         # Suppress default stdout logging for high-frequency requests
@@ -85,26 +78,18 @@ class LiveLinkRequestHandler(BaseHTTPRequestHandler):
                     "status": "running",
                     "port": _server_port,
                     "session": _server_session,
-                    "queue_size": sync_queue.qsize()
+                    "queue_size": len(sync_queue),
                 })
             elif self.path == "/poll_blender_changes":
                 self._send_response_json(200, {
                     "status": "ok",
                     "session": _server_session,
-                    "blender_changes": self._pop_outgoing()
+                    "blender_changes": self._pop_outgoing(),
                 })
-            elif self.path == "/plugin_source":
-                plugin_path = next((p for p in PLUGIN_SOURCE_CANDIDATES if os.path.exists(p)), "")
-                if plugin_path:
-                    with open(plugin_path, "r", encoding="utf-8") as f:
-                        content = f.read()
-                    self._send_response_json(200, {"source": content})
-                else:
-                    self._send_response_json(404, {"error": "Plugin file not found"})
             else:
                 self._send_response_json(404, {"error": "Not found"})
         except Exception as e:
-            print(f"[RobloxLiveLinkServer] Error in do_GET: {e}")
+            print(f"[Roblox Live Link] Error handling GET {self.path}: {e}")
             self._send_response_json(500, {"error": str(e)})
 
     def do_POST(self):
@@ -126,80 +111,81 @@ class LiveLinkRequestHandler(BaseHTTPRequestHandler):
                 data = json.loads(body.decode("utf-8"))
                 if not isinstance(data, dict):
                     raise ValueError("Payload must be a JSON object")
-
-                event_type = data.get("event")
-                if event_type in ("full_sync", "clear_all"):
-                    # Clear stale pending items so full_sync or clear executes immediately
-                    while not sync_queue.empty():
-                        try:
-                            sync_queue.get_nowait()
-                        except queue.Empty:
-                            break
-                # Never silently drop updates/removals: if Blender is busy, this request thread
-                # waits (Studio waits for the reply) instead of losing data.
-                sync_queue.put(data, timeout=20.0)
-
-                self._send_response_json(200, {
-                    "status": "queued",
-                    "session": _server_session,
-                    "blender_changes": self._pop_outgoing()
-                })
-            except queue.Full:
-                self._send_response_json(503, {"error": "Blender is busy, retry later"})
             except Exception as e:
                 self._send_response_json(400, {"error": str(e)})
+                return
+
+            if data.get("event") in ("full_sync", "clear_all"):
+                # Stale pending updates are superseded by a full sync / clear
+                sync_queue.clear()
+            elif len(sync_queue) >= MAX_PENDING:
+                # Never drop updates silently: Studio keeps them and sends them again
+                self._send_response_json(503, {"error": "Blender is busy, retry later"})
+                return
+            sync_queue.append(data)
+            self._send_response_json(200, {
+                "status": "queued",
+                "session": _server_session,
+                "blender_changes": self._pop_outgoing(),
+            })
 
         elif self.path == "/clear":
             # Command to clear all live-linked objects in Blender
-            sync_queue.put({"event": "clear_all"})
+            sync_queue.clear()
+            sync_queue.append({"event": "clear_all"})
             self._send_response_json(200, {"status": "clear_queued"})
         else:
             self._send_response_json(404, {"error": "Not found"})
 
 
+def poll():
+    """Handles waiting HTTP requests without blocking. Called from the add-on's timer on the main thread."""
+    if not _is_running or _server_instance is None:
+        return
+    sock = _server_instance.socket
+    for _ in range(MAX_REQUESTS_PER_POLL):
+        try:
+            ready, _, _ = select.select([sock], [], [], 0)
+        except (OSError, ValueError):
+            return
+        if not ready:
+            return
+        _server_instance.handle_request()
+
+
 def start_server(port=28888):
-    global _server_instance, _server_thread, _server_port, _is_running, _server_session
+    global _server_instance, _server_port, _is_running, _server_session
 
     if _is_running:
         return True, f"Server already running on port {_server_port}"
 
     _server_port = port
     try:
-        _server_instance = ThreadedHTTPServer(("127.0.0.1", _server_port), LiveLinkRequestHandler)
+        _server_instance = LiveLinkHTTPServer(("127.0.0.1", _server_port), LiveLinkRequestHandler)
     except Exception as e:
         return False, f"Failed to bind port {_server_port} (another Blender already running Live Link?): {e}"
 
     _is_running = True
     _server_session = uuid.uuid4().hex
-    _server_thread = threading.Thread(target=_server_instance.serve_forever, daemon=True)
-    _server_thread.start()
     return True, f"Server started on http://127.0.0.1:{_server_port}"
 
 
 def stop_server():
-    global _server_instance, _server_thread, _is_running
+    global _server_instance, _is_running
 
     if not _is_running or _server_instance is None:
         _is_running = False
         return True, "Server not running"
 
     try:
-        _server_instance.shutdown()
         _server_instance.server_close()
     except Exception as e:
-        logger.error(f"Error shutting down server: {e}")
+        print(f"[Roblox Live Link] Error closing server: {e}")
     finally:
         _is_running = False
         _server_instance = None
-        _server_thread = None
 
-    # Clear pending queue items
-    while not sync_queue.empty():
-        try:
-            sync_queue.get_nowait()
-        except queue.Empty:
-            break
-
+    sync_queue.clear()
     return True, "Server stopped"
 
 

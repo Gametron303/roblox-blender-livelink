@@ -2,8 +2,8 @@
 Builds the release into release/<version>/ with Blender's official extension builder:
 
   roblox_blender_livelink-<version>-windows_x64.zip   Blender extension, one zip per platform
-  roblox_blender_livelink-<version>-macos_*.zip        (the Studio plugin is also packed inside)
-  RobloxLiveLink.lua                                   Roblox Studio plugin
+  roblox_blender_livelink-<version>-macos_*.zip
+  RobloxLiveLink.lua                                   Roblox Studio plugin (separate file, not inside the zips)
   README.md (RU), README.en.md (EN, Blender Extensions page), CHANGELOG.md
 
 Materials are procedural, so no textures are packed. The local download cache (material_cache/)
@@ -84,8 +84,7 @@ def stage(dst):
     for f in glob.glob(os.path.join(ADDON_SRC, "*.py")) + [os.path.join(ADDON_SRC, "blender_manifest.toml")]:
         shutil.copy2(f, dst)
     shutil.copytree(os.path.join(ADDON_SRC, "wheels"), os.path.join(dst, "wheels"))
-    os.makedirs(os.path.join(dst, "roblox_plugin"))
-    shutil.copy2(PLUGIN_SRC, os.path.join(dst, "roblox_plugin", "RobloxLiveLink.lua"))
+    # The Studio plugin is not packed: it is installed from the Creator Store or the GitHub release
 
 
 def main():

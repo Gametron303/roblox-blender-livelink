@@ -5,13 +5,10 @@ exact Roblox face-aligned UV projection, custom Decals & Textures, and chunked i
 """
 
 import collections
-import gzip
 import hashlib
 import math
 import os
-import threading
 import time
-import urllib.request
 import json
 import uuid
 import bmesh
@@ -23,12 +20,12 @@ from . import server
 from . import mesh_loader
 from . import surfaces
 from . import procedural
+from . import downloads
 
 COLLECTION_NAME = "Roblox_LiveLink"
 _id_to_obj = {}
 _mat_cache = {}
 _img_cache = {}
-_downloading_ids = set()
 _is_timer_running = False
 
 _failed_tex_ids = set()
@@ -39,7 +36,6 @@ _assets_missing = False
 _tex_unavailable = False
 
 _outgoing_changes = {}
-_outgoing_lock = threading.Lock()
 # rbx_id -> {"matrix": Matrix (world matrix after last sync), "scale": Vector, "size": [x, y, z] (Roblox studs),
 #            "offset": Vector | None (SpecialMesh offset, Blender local), "is_model": bool}
 _sync_state = {}
@@ -439,64 +435,32 @@ def save_and_enhance_texture(raw_bytes, cache_path):
 
 
 def async_download_custom_texture(asset_id_str):
-    if not asset_id_str or asset_id_str in _downloading_ids or asset_id_str in _failed_tex_ids:
+    """Downloads a Roblox image in a separate process (see downloads.py); never blocks Blender."""
+    if not asset_id_str or asset_id_str in _failed_tex_ids:
         return
     if not asset_id_str.isdigit():
         # Non-numeric ids (rbxasset://, local paths) can't be downloaded
         _failed_tex_ids.add(asset_id_str)
         return
-    _downloading_ids.add(asset_id_str)
+    cache_path = os.path.join(CUSTOM_TEX_DIR, f"{asset_id_str}.png")
+    if os.path.exists(cache_path):
+        return
+    raw_path = cache_path + ".download"
 
-    def _worker():
-        cache_path = os.path.join(CUSTOM_TEX_DIR, f"{asset_id_str}.png")
+    def on_done(ok):
         try:
-            if os.path.exists(cache_path):
-                return
-
-            downloaded = False
-            # 1. Try assetdelivery (full-res uncompressed/gzipped raw texture)
-            try:
-                url1 = f"https://assetdelivery.roblox.com/v1/asset/?id={asset_id_str}"
-                req1 = urllib.request.Request(url1, headers={'User-Agent': 'Roblox/WinInet'})
-                with urllib.request.urlopen(req1, timeout=4.0) as resp1:
-                    raw = resp1.read()
-                    if raw.startswith(b'\x1f\x8b'):
-                        raw = gzip.decompress(raw)
-                    if raw.startswith(b'\x89PNG') or raw.startswith(b'\xff\xd8'):
-                        save_and_enhance_texture(raw, cache_path)
-                        downloaded = True
-            except Exception:
-                pass
-
-            # 2. Try thumbnails API (clothing, faces, accessories)
-            if not downloaded:
-                url2 = f"https://thumbnails.roblox.com/v1/assets?assetIds={asset_id_str}&size=420x420&format=Png&isCircular=false"
-                # Roblox generates thumbnails lazily: the first answer is often state "Pending" with no URL
-                for attempt in range(4):
-                    req2 = urllib.request.Request(url2, headers={'User-Agent': 'Mozilla/5.0'})
-                    with urllib.request.urlopen(req2, timeout=4.0) as resp2:
-                        data = json.loads(resp2.read().decode())
-                    data_list = data.get("data", [])
-                    entry = data_list[0] if data_list else {}
-                    img_url = entry.get("imageUrl")
-                    if img_url:
-                        req3 = urllib.request.Request(img_url, headers={'User-Agent': 'Mozilla/5.0'})
-                        with urllib.request.urlopen(req3, timeout=5.0) as img_resp:
-                            raw = img_resp.read()
-                        save_and_enhance_texture(raw, cache_path)
-                        break
-                    if entry.get("state") != "Pending":
-                        break
-                    time.sleep(1.5 * (attempt + 1))
-        except Exception as e:
-            print(f"[Roblox Live Link] Texture {asset_id_str} download failed: {e}")
+            if ok:
+                with open(raw_path, "rb") as f:
+                    save_and_enhance_texture(f.read(), cache_path)
+        except OSError as e:
+            print(f"[Roblox Live Link] Texture {asset_id_str} could not be saved: {e}")
         finally:
+            if os.path.exists(raw_path):
+                os.remove(raw_path)
             if not os.path.exists(cache_path):
                 _failed_tex_ids.add(asset_id_str)
-            _downloading_ids.discard(asset_id_str)
 
-    threading.Thread(target=_worker, daemon=True).start()
-
+    downloads.start("texture", asset_id_str, raw_path, on_done)
 
 
 def _clean_texture_id(asset_id_str):
@@ -670,7 +634,7 @@ def get_or_create_material(r, g, b, transparency=0.0, rbx_material="Plastic", re
 
     pending = _pending_mats.get(key)
     if pending is not None:
-        if is_material_valid(pending) and (_downloading_ids or mesh_loader._downloading_mesh_ids):
+        if is_material_valid(pending) and downloads.busy():
             _assets_missing = True
             return pending
         _pending_mats.pop(key, None)
@@ -1103,20 +1067,18 @@ def queue_outgoing_transform(obj, action="update"):
         shape = "Sphere"
     is_model = bool(state and state.get("is_model")) or bool(obj.get("is_compound_model"))
 
-    with _outgoing_lock:
-        existing_action = _outgoing_changes.get(rbx_id, {}).get("action")
+    existing_action = _outgoing_changes.get(rbx_id, {}).get("action")
     effective_action = "create" if existing_action == "create" else action
 
     if is_model:
         record_sync_state(rbx_id, obj, size=(state or {}).get("size", [1, 1, 1]), is_model=True)
-        with _outgoing_lock:
-            _outgoing_changes[rbx_id] = {
-                "action": "update",
-                "id": rbx_id,
-                "is_model": True,
-                "position": pos,
-                "rotation": rot,
-            }
+        _outgoing_changes[rbx_id] = {
+            "action": "update",
+            "id": rbx_id,
+            "is_model": True,
+            "position": pos,
+            "rotation": rot,
+        }
         return
 
     change = {
@@ -1147,17 +1109,15 @@ def queue_outgoing_transform(obj, action="update"):
 
     record_sync_state(rbx_id, obj, size=size, offset=(state or {}).get("offset"),
                       ratio_size=bool((state or {}).get("ratio_size")))
-    with _outgoing_lock:
-        _outgoing_changes[rbx_id] = change
+    _outgoing_changes[rbx_id] = change
 
 
 def pop_outgoing_changes():
-    """Called from the HTTP server thread."""
-    with _outgoing_lock:
-        if not _outgoing_changes:
-            return []
-        changes = list(_outgoing_changes.values())
-        _outgoing_changes.clear()
+    """Called by the HTTP request handler (on Blender's main thread, see server.poll)."""
+    if not _outgoing_changes:
+        return []
+    changes = list(_outgoing_changes.values())
+    _outgoing_changes.clear()
     return changes
 
 
@@ -2282,8 +2242,7 @@ def clear_all_linked_objects():
     _retry_instances.clear()
     _pending_mats.clear()
     _full_sync_ids = None
-    with _outgoing_lock:
-        _outgoing_changes.clear()
+    _outgoing_changes.clear()
     if COLLECTION_NAME in bpy.data.collections:
         col = bpy.data.collections[COLLECTION_NAME]
         all_objs = list(col.all_objects)
@@ -2439,7 +2398,7 @@ def _requeue_retries():
     now = time.perf_counter()
     if now - _last_retry_time < _RETRY_INTERVAL:
         return
-    if _downloading_ids or mesh_loader._downloading_mesh_ids:
+    if downloads.busy():
         return  # wait until all downloads finish
     _last_retry_time = now
     queued_ids = {inst.get("id") for inst in _pending_instances}
@@ -2481,11 +2440,11 @@ def process_queue_tick():
 
     is_anim_playing = False
     try:
-        while not server.sync_queue.empty():
-            try:
-                item = server.sync_queue.get_nowait()
-            except Exception:
-                break
+        # Single-threaded: accept waiting HTTP requests and collect finished downloads here
+        server.poll()
+        downloads.poll()
+        while server.sync_queue:
+            item = server.sync_queue.popleft()
             if not isinstance(item, dict):
                 continue
 
@@ -2572,8 +2531,7 @@ def _on_load_post(*_args):
     _pending_stale_ids.clear()
     _pending_mats.clear()
     _full_sync_ids = None
-    with _outgoing_lock:
-        _outgoing_changes.clear()
+    _outgoing_changes.clear()
     server.new_session()
 
 
@@ -2617,3 +2575,4 @@ def stop_sync_timer():
             bpy.app.timers.unregister(process_queue_tick)
         except Exception:
             pass
+    downloads.cancel_all()
