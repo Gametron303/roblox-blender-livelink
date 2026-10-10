@@ -39,11 +39,11 @@ def _find_local_roblox_meshes():
     if _local_mesh_paths:
         return _local_mesh_paths
 
-    appdata = os.getenv("LOCALAPPDATA")
-    if not appdata:
+    content = paths.studio_content_dir()
+    if not content:
         return {}
 
-    pattern = os.path.join(appdata, "Roblox", "Versions", "*", "content", "**", "*.mesh")
+    pattern = os.path.join(content, "**", "*.mesh")
     for fpath in glob.glob(pattern, recursive=True):
         fname = os.path.basename(fpath).lower()
         if fname not in _local_mesh_paths:
@@ -66,7 +66,7 @@ def parse_roblox_mesh_v1(data_bytes):
         return None
 
     try:
-        num_faces = int(lines[1].strip())
+        int(lines[1].strip())  # face count line: must be a number in a valid version 1 mesh
     except ValueError:
         return None
 
@@ -421,9 +421,9 @@ def _fill_mesh(mesh, mesh_dict):
     mesh.from_pydata(verts, [], faces)
     mesh.update()
     if verts:
-        min_x = min(v[0] for v in verts); max_x = max(v[0] for v in verts)
-        min_y = min(v[1] for v in verts); max_y = max(v[1] for v in verts)
-        min_z = min(v[2] for v in verts); max_z = max(v[2] for v in verts)
+        min_x, max_x = min(v[0] for v in verts), max(v[0] for v in verts)
+        min_y, max_y = min(v[1] for v in verts), max(v[1] for v in verts)
+        min_z, max_z = min(v[2] for v in verts), max(v[2] for v in verts)
         dx = max(0.001, max_x - min_x)
         dy = max(0.001, max_z - min_z)  # Roblox Y (height) is Blender Z
         dz = max(0.001, max_y - min_y)  # Roblox Z (depth) is Blender Y
@@ -501,10 +501,6 @@ def get_or_load_mesh(mesh_id_str, fallback_name=None):
     mesh_dict = parse_roblox_mesh(raw_data)
     if not mesh_dict:
         return None
-
-    verts = mesh_dict["verts"]
-    faces = mesh_dict["faces"]
-    uvs = mesh_dict.get("uvs", [])
 
     # 5. Build Blender Mesh (or restore an edited one in place, so every part using it is fixed)
     new_mesh = existing if existing is not None else bpy.data.meshes.new(mesh_name)

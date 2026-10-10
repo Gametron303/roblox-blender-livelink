@@ -408,7 +408,7 @@ def register():
     try:
         copied = paths.migrate_legacy_cache()
         if copied:
-            print(f"[Roblox Live Link] Moved {copied} cached assets from the old add-on install")
+            print(f"[Roblox Live Link] Copied {copied} cached assets from the old add-on install")
     except Exception as e:
         print(f"[Roblox Live Link] Cache migration skipped: {e}")
     for cls in classes:

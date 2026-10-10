@@ -16,11 +16,13 @@ import time
 import urllib.request
 
 ASSET_URL = "https://assetdelivery.roblox.com/v1/asset/?id={}"
+# Identifies the add-on honestly; Roblox serves public assets to any client
+USER_AGENT = "RobloxBlenderLiveLink (Blender extension)"
 THUMB_URL = "https://thumbnails.roblox.com/v1/assets?assetIds={}&size=420x420&format=Png&isCircular=false"
 
 
-def _get(url, user_agent, timeout):
-    req = urllib.request.Request(url, headers={"User-Agent": user_agent})
+def _get(url, timeout):
+    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         data = resp.read()
     if data.startswith(b"\x1f\x8b"):
@@ -36,7 +38,7 @@ def _write(out_path, data):
 
 
 def fetch_mesh(asset_id, out_path):
-    data = _get(ASSET_URL.format(asset_id), "Roblox/WinInet", 8.0)
+    data = _get(ASSET_URL.format(asset_id), 8.0)
     # Don't keep error pages / non-mesh payloads
     if b"version " not in data[:40]:
         return False
@@ -47,7 +49,7 @@ def fetch_mesh(asset_id, out_path):
 def fetch_texture(asset_id, out_path):
     # 1. Full-resolution image from the asset delivery API (many assets now need sign-in: HTTP 401)
     try:
-        data = _get(ASSET_URL.format(asset_id), "Roblox/WinInet", 6.0)
+        data = _get(ASSET_URL.format(asset_id), 6.0)
         if data.startswith(b"\x89PNG") or data.startswith(b"\xff\xd8"):
             _write(out_path, data)
             return True
@@ -55,11 +57,11 @@ def fetch_texture(asset_id, out_path):
         pass
     # 2. Public thumbnail (up to 420x420). Roblox renders thumbnails lazily: first answer is often "Pending"
     for attempt in range(4):
-        info = json.loads(_get(THUMB_URL.format(asset_id), "Mozilla/5.0", 6.0).decode("utf-8"))
+        info = json.loads(_get(THUMB_URL.format(asset_id), 6.0).decode("utf-8"))
         entries = info.get("data") or [{}]
         url = entries[0].get("imageUrl")
         if url:
-            _write(out_path, _get(url, "Mozilla/5.0", 8.0))
+            _write(out_path, _get(url, 8.0))
             return True
         if entries[0].get("state") != "Pending":
             return False

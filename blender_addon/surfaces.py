@@ -5,10 +5,11 @@ The Studio plugin sends every layer of a part ("surfaces"). Decals and SurfaceGu
 baked here into a single RGBA image (with PIL); tiled Textures stay in the shader (they repeat per stud).
 """
 
-import glob
 import hashlib
 import json
 import os
+
+from . import paths
 
 # Faces of a unit part in Blender local axes (Roblox X -> X, Roblox Y -> Z, Roblox Z -> -Y).
 # "right"/"up" are the directions of the image U/V axes when looking at the face, as Roblox draws decals.
@@ -68,24 +69,8 @@ def signature(obj):
 # Roblox Studio content folder (bundled fonts and rbxasset:// textures)
 # ---------------------------------------------------------------------------
 
-_content_dir = None
-
-
 def studio_content_dir():
-    global _content_dir
-    if _content_dir is not None:
-        return _content_dir or None
-    _content_dir = ""
-    base = os.getenv("LOCALAPPDATA")
-    if base:
-        exes = glob.glob(os.path.join(base, "Roblox", "Versions", "*", "RobloxStudioBeta.exe"))
-        exes.sort(key=os.path.getmtime, reverse=True)
-        for exe in exes:
-            content = os.path.join(os.path.dirname(exe), "content")
-            if os.path.isdir(content):
-                _content_dir = content
-                break
-    return _content_dir or None
+    return paths.studio_content_dir()
 
 
 def rbxasset_path(content):
@@ -113,7 +98,10 @@ _glyph_support_cache = {}
 
 
 def _windows_font(name):
-    path = os.path.join(os.getenv("WINDIR", r"C:\Windows"), "Fonts", name)
+    windir = os.getenv("WINDIR")
+    if not windir:
+        return None  # not Windows: Studio's own Arimo fonts are used instead
+    path = os.path.join(windir, "Fonts", name)
     return path if os.path.exists(path) else None
 
 

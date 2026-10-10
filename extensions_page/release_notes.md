@@ -3,6 +3,8 @@ Changes requested in the extension review; sync behavior is the same as in 1.3.0
 - No threads: the add-on no longer uses the `threading` or `queue` modules. The local HTTP server is polled from a Blender timer (non-blocking), and Roblox meshes/textures are downloaded in separate processes started with `subprocess`.
 - The Roblox Studio plugin is no longer packed inside the extension zip.
 - All plugin source comments are in English.
+- macOS: Roblox Studio fonts and built-in meshes are now also found in `RobloxStudio.app`.
+- Downloads identify themselves with the extension's own User-Agent.
 
 1.3.0-beta: first public release (beta, still being tested).
 

@@ -5,8 +5,10 @@ Everything downloaded or generated at runtime (Roblox textures, meshes, baked fa
 extension's user folder: extensions must not write into their own directory.
 """
 
+import glob
 import os
 import shutil
+import sys
 
 import bpy
 
@@ -54,6 +56,28 @@ def migrate_legacy_cache():
                 shutil.copy2(src, dst)
                 copied += 1
     return copied
+
+
+_studio_content = None
+
+
+def studio_content_dir():
+    """The newest Roblox Studio install's "content" folder (read-only use), or None if Studio isn't found."""
+    global _studio_content
+    if _studio_content is not None:
+        return _studio_content or None
+    candidates = []
+    if sys.platform == "win32":
+        base = os.getenv("LOCALAPPDATA")
+        if base:
+            exes = glob.glob(os.path.join(base, "Roblox", "Versions", "*", "RobloxStudioBeta.exe"))
+            exes.sort(key=os.path.getmtime, reverse=True)
+            candidates = [os.path.join(os.path.dirname(exe), "content") for exe in exes]
+    elif sys.platform == "darwin":
+        for apps in ("/Applications", os.path.expanduser("~/Applications")):
+            candidates.append(os.path.join(apps, "RobloxStudio.app", "Contents", "Resources", "content"))
+    _studio_content = next((c for c in candidates if os.path.isdir(c)), "")
+    return _studio_content or None
 
 
 def online_access_allowed():
