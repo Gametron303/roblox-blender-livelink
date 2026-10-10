@@ -1,0 +1,15 @@
+# Local download caches (assets of the games you synced) and old backups
+material_cache/
+blender_addon/material_cache/
+_backup_*/
+
+# Built packages: published as GitHub release assets
+release/
+*.zip
+
+# Pillow wheels are downloaded from PyPI by tools/build_release.py
+blender_addon/wheels/
+
+__pycache__/
+*.pyc
+*.part

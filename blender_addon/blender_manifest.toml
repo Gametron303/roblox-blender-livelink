@@ -1,0 +1,43 @@
+schema_version = "1.0.0"
+
+# Keep "version" in sync with VERSION_LABEL in __init__.py and PLUGIN_VERSION in the Studio plugin
+id = "roblox_blender_livelink"
+version = "1.3.0-beta"
+name = "Roblox Studio Live Link (Beta)"
+tagline = "Live two-way sync between Roblox Studio and Blender (beta)"
+maintainer = "Copperhead"
+type = "add-on"
+website = "https://github.com/Gametron303/roblox-blender-livelink"
+
+tags = ["Import-Export", "3D View"]
+
+blender_version_min = "4.2.0"
+
+license = ["SPDX:GPL-3.0-or-later"]
+
+# Roblox Studio runs on Windows and macOS only
+platforms = ["windows-x64", "macos-arm64", "macos-x64"]
+
+# Pillow draws SurfaceGui text/images and bakes decals (Python 3.11: Blender 4.2-4.5, 3.13: Blender 5.x)
+wheels = [
+  "./wheels/pillow-12.2.0-cp311-cp311-win_amd64.whl",
+  "./wheels/pillow-12.2.0-cp311-cp311-macosx_11_0_arm64.whl",
+  "./wheels/pillow-12.2.0-cp311-cp311-macosx_10_10_x86_64.whl",
+  "./wheels/pillow-12.2.0-cp313-cp313-win_amd64.whl",
+  "./wheels/pillow-12.2.0-cp313-cp313-macosx_11_0_arm64.whl",
+  "./wheels/pillow-12.2.0-cp313-cp313-macosx_10_13_x86_64.whl",
+]
+
+[permissions]
+network = "Local server for Roblox Studio, downloads Roblox assets"
+files = "Reads Roblox Studio fonts and caches downloaded assets"
+
+[build]
+paths_exclude_pattern = [
+  "__pycache__/",
+  "/.git/",
+  "*.part",
+  "*.zip",
+  # Local cache of a source checkout (downloaded assets of the games you synced): never shipped
+  "/material_cache/",
+]
