@@ -60,12 +60,20 @@ The extension runs a small local server (`127.0.0.1:28888`). A companion Roblox 
 
 ### 2. Roblox Studio plugin
 
-1. Copy `RobloxLiveLink.lua` into the local plugins folder:
-   - Windows: `%LOCALAPPDATA%\Roblox\Plugins\`
-   - macOS: `~/Documents/Roblox/Plugins/`
-   > Keep the `.lua` extension: Studio does not load `.luau` files from this folder.
-2. Restart Studio. A **Blender Bridge** toolbar with three buttons appears on the **Plugins** tab.
-3. On first connect Studio asks for permission to send HTTP requests to `127.0.0.1`: click **Allow**.
+**Recommended — Roblox Creator Store:** open [Blender Live Link (Beta)](https://create.roblox.com/store/asset/113147868123756), click **Get** and
+install it in Studio. Updates arrive automatically.
+
+**Manual (fallback):** copy `RobloxLiveLink.lua` from the
+[GitHub release](https://github.com/Gametron303/roblox-blender-livelink/releases/latest) into the local plugins folder:
+- Windows: `%LOCALAPPDATA%\Roblox\Plugins\`
+- macOS: `~/Documents/Roblox/Plugins/`
+> Keep the `.lua` extension: Studio does not load `.luau` files from this folder.
+
+> ⚠️ Don't install both: if you use the Creator Store version, delete a local `RobloxLiveLink.lua`
+> from the Plugins folder, otherwise two copies load and conflict.
+
+Then restart Studio. A **Blender Bridge** toolbar with three buttons appears on the **Plugins** tab.
+On first connect Studio asks for permission to send HTTP requests to `127.0.0.1`: click **Allow**.
 
 ## Quick start
 

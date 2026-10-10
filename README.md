@@ -43,15 +43,23 @@ Pillow (для надписей и SurfaceGui) уже лежит внутри р
 
 ### Roblox Studio
 
-1. Скопируйте `RobloxLiveLink.lua` в папку локальных плагинов:
-   - Windows: `%LOCALAPPDATA%\Roblox\Plugins\`
-   - macOS: `~/Documents/Roblox/Plugins/`
-   > Расширение именно `.lua`: файлы `.luau` Studio из этой папки не загружает.
-   > Файл должен быть без BOM (UTF-8 без сигнатуры), иначе Studio выдаст ошибку `U+feff`.
-2. Перезапустите Studio.
-3. На вкладке **Plugins** появится панель **Blender Bridge** с тремя кнопками, а в Output строка
+**Рекомендуется — из Creator Store:** откройте [Blender Live Link (Beta)](https://create.roblox.com/store/asset/113147868123756), нажмите
+**Get** и затем установите плагин в Studio. Обновления будут приходить сами.
+
+**Вручную (запасной вариант):** скопируйте `RobloxLiveLink.lua` из релиза в папку локальных плагинов:
+- Windows: `%LOCALAPPDATA%\Roblox\Plugins\`
+- macOS: `~/Documents/Roblox/Plugins/`
+> Расширение именно `.lua`: файлы `.luau` Studio из этой папки не загружает.
+> Файл должен быть без BOM (UTF-8 без сигнатуры), иначе Studio выдаст ошибку `U+feff`.
+
+> ⚠️ Не ставьте обе версии сразу: если плагин установлен из Creator Store, удалите локальный
+> `RobloxLiveLink.lua` из папки Plugins. Иначе загрузятся два экземпляра и будут мешать друг другу.
+
+После установки:
+1. Перезапустите Studio.
+2. На вкладке **Plugins** появится панель **Blender Bridge** с тремя кнопками, а в Output строка
    `[Roblox Live Link] Plugin ready (v1.3.0-beta)...`.
-4. При первом подключении Studio спросит разрешение на HTTP-запросы к `127.0.0.1`. Нажмите **Allow**.
+3. При первом подключении Studio спросит разрешение на HTTP-запросы к `127.0.0.1`. Нажмите **Allow**.
 
 ---
 
