@@ -10,7 +10,7 @@
     - Zero Studio freezing (no heavy CSG separation, batched change checks)
 ]]
 
-local PLUGIN_VERSION = "1.3.1-beta"
+local PLUGIN_VERSION = "1.3.2-beta"
 
 local HttpService = game:GetService("HttpService")
 local RunService = game:GetService("RunService")
@@ -650,6 +650,12 @@ local function getFallbackMesh(part: BasePart): string?
     return nil
 end
 
+-- SpecialMesh.MeshType ("Head", "Sphere", "Wedge", "FileMesh"...): without a MeshId Blender builds this shape
+local function getSpecialMeshType(part: BasePart): string?
+    local specialMesh = part:FindFirstChildWhichIsA("SpecialMesh")
+    return if specialMesh then specialMesh.MeshType.Name else nil
+end
+
 -- Mesh data shared by individual and merged serialization
 local function getMeshData(part: BasePart): (string?, { number }?, { number }?)
     local meshId: string? = nil
@@ -726,6 +732,7 @@ local function serializePart(part: BasePart)
         mesh_scale = meshScale,
         mesh_offset = meshOffset,
         fallback_mesh = getFallbackMesh(part),
+        mesh_type = getSpecialMeshType(part),
         position = { x, y, z },
         rotation = { r00, r01, r02, r10, r11, r12, r20, r21, r22 },
         size = { part.Size.X, part.Size.Y, part.Size.Z },
@@ -850,6 +857,7 @@ local function serializeCompoundModel(model: Model): any
                 mesh_scale = meshScale,
                 mesh_offset = meshOffset,
                 fallback_mesh = getFallbackMesh(part),
+                mesh_type = getSpecialMeshType(part),
                 texture_info = texInfo,
                 surfaces = surfaces,
                 materialVariant = getMaterialVariantData(part),

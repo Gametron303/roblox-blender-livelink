@@ -437,6 +437,36 @@ def _fill_mesh(mesh, mesh_dict):
     stamp_geometry(mesh)
 
 
+def get_builtin_mesh(name):
+    """
+    A mesh that ships with Roblox Studio (e.g. "head" for SpecialMesh MeshType Head), read from the
+    local Studio install. None when Studio isn't installed on this computer.
+    """
+    mesh_name = f"RbxBuiltin_{name}"
+    existing = bpy.data.meshes.get(mesh_name)
+    if existing is not None and len(existing.vertices) > 0:
+        if geometry_intact(existing):
+            if existing.get("rbx_geo") is None:
+                stamp_geometry(existing)
+            protect_shared(existing)
+            return existing
+    path = _find_local_roblox_meshes().get(f"{name}.mesh")
+    if not path:
+        return None
+    try:
+        with open(path, "rb") as f:
+            mesh_dict = parse_roblox_mesh(f.read())
+    except OSError:
+        return None
+    if not mesh_dict:
+        return None
+    mesh = existing if existing is not None else bpy.data.meshes.new(mesh_name)
+    _fill_mesh(mesh, mesh_dict)
+    mesh.use_fake_user = True
+    protect_shared(mesh)
+    return mesh
+
+
 def get_or_load_mesh(mesh_id_str, fallback_name=None):
     """
     Returns a bpy.data.meshes instance with parsed Roblox geometry,

@@ -3,7 +3,6 @@ Builds the release into release/<version>/ with Blender's official extension bui
 
   roblox_blender_livelink-<version>-windows_x64.zip   Blender extension, one zip per platform
   roblox_blender_livelink-<version>-macos_*.zip
-  RobloxLiveLink.lua                                   Roblox Studio plugin (separate file, not inside the zips)
   README.md (RU), README.en.md (EN, Blender Extensions page), CHANGELOG.md
 
 Materials are procedural, so no textures are packed. The local download cache (material_cache/)
@@ -108,7 +107,6 @@ def main():
             print(">", "blender --command extension", " ".join(cmd))
             subprocess.run([blender, "--factory-startup", "--command", "extension", *cmd], check=True)
 
-    shutil.copyfile(PLUGIN_SRC, os.path.join(out_dir, "RobloxLiveLink.lua"))
     for doc in ("README.md", "README.en.md", "CHANGELOG.md"):
         shutil.copyfile(os.path.join(ROOT, doc), os.path.join(out_dir, doc))
     for f in sorted(os.listdir(out_dir)):

@@ -1,10 +1,11 @@
-Code clean-up to follow the Blender Extensions guidelines; sync behavior is the same as in 1.3.0-beta.
+Code clean-up to follow the Blender Extensions guidelines, plus a few fixes.
 
+- R6 heads (SpecialMesh of type Head) now arrive as the real Roblox head mesh with the face decal, instead of a box.
+- SpecialMesh types Sphere and Wedge are built as a sphere and a wedge; Brick respects SpecialMesh.Scale (also inside merged models).
 - No threads: the add-on no longer uses the `threading` or `queue` modules. The local HTTP server is polled from a Blender timer (non-blocking), and Roblox meshes/textures are downloaded in separate processes started with `subprocess`.
-- The Roblox Studio plugin is no longer packed inside the extension zip.
-- All plugin source comments are in English.
 - macOS: Roblox Studio fonts and built-in meshes are now also found in `RobloxStudio.app`.
 - Downloads identify themselves with the extension's own User-Agent.
+- The Roblox Studio plugin is no longer packed inside the extension zip; all plugin source comments are in English.
 
 1.3.0-beta: first public release (beta, still being tested).
 
@@ -14,6 +15,5 @@ Code clean-up to follow the Blender Extensions guidelines; sync behavior is the 
 - Meshes downloaded from Roblox and cached; downloads only with *Allow Online Access* enabled
 - Pillow bundled for SurfaceGui/text rendering
 
-Get the Roblox Studio plugin from the [Creator Store](https://create.roblox.com/store/asset/113147868123756)
-(or as `RobloxLiveLink.lua` from the [GitHub release](https://github.com/Gametron303/roblox-blender-livelink/releases/tag/v1.3.1-beta)).
+Get the Roblox Studio plugin from the [Creator Store](https://create.roblox.com/store/asset/113147868123756).
 macOS builds are not tested yet. Please report bugs on [GitHub Issues](https://github.com/Gametron303/roblox-blender-livelink/issues).

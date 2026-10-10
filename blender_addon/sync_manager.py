@@ -1595,6 +1595,26 @@ def _get_live_object(inst_id):
 
 
 # ---------------------------------------------------------------------------
+# SpecialMesh MeshType without a MeshId: Roblox draws a built-in shape instead of the part's own one
+_SPECIAL_MESH_SHAPES = {"Sphere": "Ball", "Wedge": "Wedge", "Brick": "Block"}
+
+
+def _special_mesh_kind(data, mesh_id, mesh_scale):
+    """'Head', 'Sphere', 'Wedge', 'Brick'... for a SpecialMesh without MeshId, else None."""
+    if mesh_id or not mesh_scale:
+        return None
+    kind = data.get("mesh_type")
+    if kind is None and data.get("fallback_mesh") == "head":
+        kind = "Head"  # plugins up to 1.3.1 don't send mesh_type; R6 heads are named "Head"
+    return kind
+
+
+def _head_mesh_scale(size, mesh_scale):
+    """Head MeshType: Studio's head mesh scaled uniformly by the part's smallest side, times SpecialMesh.Scale."""
+    m = min(float(v) for v in size)
+    return m * float(mesh_scale[0]), m * float(mesh_scale[2]), m * float(mesh_scale[1])
+
+
 # Surface layers on block faces: Decals, Textures and SurfaceGuis (see surfaces.py)
 # ---------------------------------------------------------------------------
 
@@ -1874,11 +1894,17 @@ def update_or_create_instance(inst_data, col):
         expected_mesh = mesh_loader.get_or_load_mesh(mesh_id, fallback_name=fallback_mesh)
     is_file_mesh = expected_mesh is not None
 
+    special_kind = None if is_csg else _special_mesh_kind(inst_data, mesh_id, mesh_scale)
+    is_head = False
+    if special_kind == "Head" and not layered:
+        expected_mesh = mesh_loader.get_builtin_mesh("head")
+        is_head = expected_mesh is not None
+
     if layered:
         face_mats = _layered_face_materials(mat, surfaces_list, size)
         expected_mesh = _layered_mesh(inst_id, mat, face_mats, size)
     elif not expected_mesh:
-        expected_mesh = get_shared_mesh(shape, target_face)
+        expected_mesh = get_shared_mesh(_SPECIAL_MESH_SHAPES.get(special_kind, shape), target_face)
 
     if obj is None:
         obj = bpy.data.objects.new(name, expected_mesh)
@@ -1926,7 +1952,9 @@ def update_or_create_instance(inst_data, col):
     _is_applying_roblox_update = True
     try:
         part_matrix = rbx_cframe_to_blender_matrix(pos, rot)
-        if is_file_mesh and mesh_scale and len(mesh_scale) == 3:
+        if is_head:
+            sx, sy, sz = _head_mesh_scale(size, mesh_scale)
+        elif is_file_mesh and mesh_scale and len(mesh_scale) == 3:
             # SpecialMesh FileMesh renders at native mesh size * Scale, independent of Part.Size
             sx, sy, sz = float(mesh_scale[0]), float(mesh_scale[2]), float(mesh_scale[1])
         else:
@@ -2091,8 +2119,25 @@ def update_or_create_compound_model(model_data, col):
 
             p_matrix = rbx_cframe_to_blender_matrix(p_rel_pos, p_rel_rot)
             sx, sy, sz = p_size[0], p_size[2], p_size[1]
+            p_kind = None if p_layered else _special_mesh_kind(p, p_mesh_id, p_mesh_scale)
+            p_off_mat = Matrix.Identity(4)
+            if p_kind is not None:
+                # SpecialMesh Brick/Sphere/Wedge...: Part.Size * Scale, moved by SpecialMesh.Offset
+                sx *= float(p_mesh_scale[0])
+                sy *= float(p_mesh_scale[2])
+                sz *= float(p_mesh_scale[1])
+                p_shape = _SPECIAL_MESH_SHAPES.get(p_kind, p_shape)
+                if p_mesh_offset and len(p_mesh_offset) == 3:
+                    p_off_mat = Matrix.Translation(Vector((float(p_mesh_offset[0]), -float(p_mesh_offset[2]), float(p_mesh_offset[1]))))
             s_mat = Matrix.Diagonal((sx, sy, sz, 1.0))
-            part_mat = p_matrix @ s_mat
+            part_mat = p_matrix @ p_off_mat @ s_mat
+
+            if p_kind == "Head":
+                head_m = mesh_loader.get_builtin_mesh("head")
+                if head_m:
+                    hx, hy, hz = _head_mesh_scale(p_size, p_mesh_scale)
+                    append_mesh_to_bmesh(bm, head_m, p_matrix @ p_off_mat @ Matrix.Diagonal((hx, hy, hz, 1.0)), mat_idx, uv_layer)
+                    continue
 
             if p_layered:
                 face_mats = _layered_face_materials(mat, p_surfaces, p_size)

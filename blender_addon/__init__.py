@@ -4,7 +4,7 @@ Registers operators, UI panel, and manages server lifecycle.
 """
 
 # Keep in sync with "version" in blender_manifest.toml and PLUGIN_VERSION in the Studio plugin
-VERSION_LABEL = "1.3.1-beta"
+VERSION_LABEL = "1.3.2-beta"
 
 import importlib
 import bpy

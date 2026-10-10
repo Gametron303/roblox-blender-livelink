@@ -1,4 +1,4 @@
-# Roblox Studio ↔ Blender Live Link — 1.3.1-beta
+# Roblox Studio ↔ Blender Live Link — 1.3.2-beta
 
 > ⚠️ **Бета-версия, ещё тестируется.** Возможны ошибки, а поведение может измениться
 > в следующих версиях. Перед работой сохраняйте плейс и `.blend`. Об ошибках пишите
@@ -16,8 +16,8 @@
 
 | Часть | Файл релиза | Что делает |
 |---|---|---|
-| Расширение Blender | `roblox_blender_livelink-1.3.1-beta-<платформа>.zip` | Локальный сервер на `127.0.0.1:28888`, строит сцену в Blender |
-| Плагин Studio | `RobloxLiveLink.lua` | Отправляет сцену в Blender и принимает изменения обратно |
+| Расширение Blender | `roblox_blender_livelink-1.3.2-beta-<платформа>.zip` | Локальный сервер на `127.0.0.1:28888`, строит сцену в Blender |
+| Плагин Studio | [Creator Store](https://create.roblox.com/store/asset/113147868123756) | Отправляет сцену в Blender и принимает изменения обратно |
 
 Поддерживаются **Windows и macOS** (Roblox Studio существует только там) и **Blender 4.2 и новее**.
 
@@ -31,7 +31,7 @@
    и удалите её. Иначе обе версии будут бороться за порт 28888. Скачанные ею текстуры и меши
    новая версия при первом включении перенесёт к себе сама.
 2. Возьмите zip для своей системы:
-   - Windows — `roblox_blender_livelink-1.3.1-beta-windows_x64.zip`
+   - Windows — `roblox_blender_livelink-1.3.2-beta-windows_x64.zip`
    - Mac на Apple Silicon (M1–M4) — `...-macos_arm64.zip`
    - Mac на Intel — `...-macos_x64.zip`
 3. Перетащите zip в окно Blender **или** откройте **Edit → Preferences → Get Extensions → ⌄ →
@@ -43,22 +43,13 @@ Pillow (для надписей и SurfaceGui) уже лежит внутри р
 
 ### Roblox Studio
 
-**Рекомендуется — из Creator Store:** откройте [Blender Live Link (Beta)](https://create.roblox.com/store/asset/113147868123756), нажмите
+Плагин ставится из Creator Store: откройте [Blender Live Link (Beta)](https://create.roblox.com/store/asset/113147868123756), нажмите
 **Get** и затем установите плагин в Studio. Обновления будут приходить сами.
-
-**Вручную (запасной вариант):** скопируйте `RobloxLiveLink.lua` из релиза в папку локальных плагинов:
-- Windows: `%LOCALAPPDATA%\Roblox\Plugins\`
-- macOS: `~/Documents/Roblox/Plugins/`
-> Расширение именно `.lua`: файлы `.luau` Studio из этой папки не загружает.
-> Файл должен быть без BOM (UTF-8 без сигнатуры), иначе Studio выдаст ошибку `U+feff`.
-
-> ⚠️ Не ставьте обе версии сразу: если плагин установлен из Creator Store, удалите локальный
-> `RobloxLiveLink.lua` из папки Plugins. Иначе загрузятся два экземпляра и будут мешать друг другу.
 
 После установки:
 1. Перезапустите Studio.
 2. На вкладке **Plugins** появится панель **Blender Bridge** с тремя кнопками, а в Output строка
-   `[Roblox Live Link] Plugin ready (v1.3.1-beta)...`.
+   `[Roblox Live Link] Plugin ready (v1.3.2-beta)...`.
 3. При первом подключении Studio спросит разрешение на HTTP-запросы к `127.0.0.1`. Нажмите **Allow**.
 
 ---
@@ -198,7 +189,7 @@ Pillow (для надписей и SurfaceGui) уже лежит внутри р
 
 | Симптом | Что сделать |
 |---|---|
-| Нет панели **Blender Bridge** в Studio | Проверьте, что файл лежит в `%LOCALAPPDATA%\Roblox\Plugins\` с расширением **`.lua`**, и перезапустите Studio. Посмотрите Output на ошибки. |
+| Нет панели **Blender Bridge** в Studio | Проверьте в **Plugins → Manage Plugins**, что плагин Blender Live Link установлен и включён, и перезапустите Studio. Посмотрите Output на ошибки. |
 | `Blender server unreachable. Click 'Start Server' in Blender.` | В Blender не запущен сервер (N → Roblox → Start Server), или порты в Blender и Studio не совпадают. |
 | В Blender пусто, хотя Live Sync включён | В режиме Selection нужно что-то выделить. В режиме BlenderSync должна существовать папка `Workspace.BlenderSync`. |
 | `Failed to bind port 28888` в Blender | Live Link уже запущен в другом окне Blender. Остановите его там или смените порт (и выставьте `LiveLinkPort` в Studio). |
